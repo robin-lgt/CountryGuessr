@@ -24,9 +24,11 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
       - name: Upload to Firebase App Distribution
-        uses: google-github-actions/firebase-app-distribution@v1
-        with:
-          app_id: ${{ secrets.FIREBASE_APP_ID }}
-          groups: testers
-          file: build/app/outputs/flutter-apk/app-release.apk
+        run: |
+          firebase appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk \
+            --app "${{ secrets.FIREBASE_APP_ID }}" \
+            --groups testers
