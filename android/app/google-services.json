@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1030326147011",
+    "project_id": "countryguessr-483e8",
+    "storage_bucket": "countryguessr-483e8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1030326147011:android:7c5af616f21ecb3003cf76",
+        "android_client_info": {
+          "package_name": "com.countryguessr.country_guessr"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCKkW7VvdYxGL4YfcSNrx35GuOxIIBRYyQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
