@@ -10,74 +10,97 @@ class CountryLayer extends MapLayer {
   final Set<int> correctIds = {};
   final Set<int> incorrectIds = {};
   int? highlightedId;
+  double currentScale = 1.0;
 
-  static const double _markerRadius = 5.0;
-  static const double _markerHitRadius = 12.0;
-  static const double _smallCountryThreshold = 50.0;
+  static const double _smallCountryThreshold = 15.0;
+  static const _noMarkerIds = {144, 222, 84};
+
+  Size? _cachedSize;
+  final Map<int, List<Path>> _pathCache = {};
+  final Map<int, Offset> _centroidCache = {};
+  final Map<int, double> _areaCache = {};
 
   CountryLayer({required this.countries, required this.projection})
       : super(id: 'countries');
 
-  @override
-  void paint(Canvas canvas, Size size, Matrix4 transform, MapThemeData theme) {
+  void _rebuildCache(Size size) {
+    if (_cachedSize == size) return;
+    _cachedSize = size;
+    _pathCache.clear();
+    _centroidCache.clear();
+    _areaCache.clear();
+
     for (final country in countries) {
-      final color = _colorForCountry(country.id, theme);
-      final fillPaint = Paint()
-        ..color = color
-        ..style = PaintingStyle.fill;
-      final borderPaint = Paint()
-        ..color = theme.countryBorder
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.3;
+      final paths = <Path>[];
+      double minX = double.infinity, minY = double.infinity;
+      double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
 
       for (final polygon in country.polygons) {
         if (polygon.length < 3) continue;
-        final path = _buildPath(polygon, size);
+        final path = Path();
+        bool first = true;
+        for (final point in polygon) {
+          final p = projection.project(point, size);
+          if (p.dx < minX) minX = p.dx;
+          if (p.dx > maxX) maxX = p.dx;
+          if (p.dy < minY) minY = p.dy;
+          if (p.dy > maxY) maxY = p.dy;
+          if (first) {
+            path.moveTo(p.dx, p.dy);
+            first = false;
+          } else {
+            path.lineTo(p.dx, p.dy);
+          }
+        }
+        path.close();
+        paths.add(path);
+      }
+      _pathCache[country.id] = paths;
+      _centroidCache[country.id] = projection.project(country.centroid, size);
+      _areaCache[country.id] = (maxX - minX) * (maxY - minY);
+    }
+  }
+
+  bool _needsMarker(int id) {
+    if (_noMarkerIds.contains(id)) return false;
+    return (_areaCache[id] ?? 0) < _smallCountryThreshold;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size, Matrix4 transform, MapThemeData theme) {
+    _rebuildCache(size);
+
+    final borderPaint = Paint()
+      ..color = theme.countryBorder
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.3;
+
+    for (final country in countries) {
+      final fillPaint = Paint()
+        ..color = _colorForCountry(country.id, theme)
+        ..style = PaintingStyle.fill;
+      final paths = _pathCache[country.id];
+      if (paths == null) continue;
+      for (final path in paths) {
         canvas.drawPath(path, fillPaint);
         canvas.drawPath(path, borderPaint);
       }
     }
 
-    // Draw markers for small countries
+    // Markers for small countries — radius shrinks with zoom
+    final r = (5.0 / currentScale).clamp(1.5, 5.0);
+    final mBorder = Paint()
+      ..color = theme.countryBorder
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = (1.2 / currentScale).clamp(0.3, 1.2);
+
     for (final country in countries) {
-      if (_isSmallCountry(country, size)) {
-        final center = projection.project(country.centroid, size);
-        final color = _colorForCountry(country.id, theme);
-        final markerPaint = Paint()
-          ..color = color
-          ..style = PaintingStyle.fill;
-        final borderPaint = Paint()
-          ..color = theme.countryBorder
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5;
-
-        canvas.drawCircle(center, _markerRadius, markerPaint);
-        canvas.drawCircle(center, _markerRadius, borderPaint);
-      }
+      if (!_needsMarker(country.id)) continue;
+      final c = _centroidCache[country.id];
+      if (c == null) continue;
+      canvas.drawCircle(c, r, Paint()..color = _colorForCountry(country.id, theme));
+      canvas.drawCircle(c, r, mBorder);
     }
-  }
-
-  bool _isSmallCountry(GeoCountry country, Size size) {
-    final bounds = _getBounds(country, size);
-    final area = bounds.width * bounds.height;
-    return area < _smallCountryThreshold;
-  }
-
-  Rect _getBounds(GeoCountry country, Size size) {
-    double minX = double.infinity, minY = double.infinity;
-    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
-
-    for (final polygon in country.polygons) {
-      for (final point in polygon) {
-        final projected = projection.project(point, size);
-        if (projected.dx < minX) minX = projected.dx;
-        if (projected.dx > maxX) maxX = projected.dx;
-        if (projected.dy < minY) minY = projected.dy;
-        if (projected.dy > maxY) maxY = projected.dy;
-      }
-    }
-
-    return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
   Color _colorForCountry(int id, MapThemeData theme) {
@@ -87,60 +110,33 @@ class CountryLayer extends MapLayer {
     return theme.countryFill;
   }
 
-  Path _buildPath(List<Offset> polygon, Size size) {
-    final path = Path();
-    bool first = true;
-    for (final point in polygon) {
-      final projected = projection.project(point, size);
-      if (first) {
-        path.moveTo(projected.dx, projected.dy);
-        first = false;
-      } else {
-        path.lineTo(projected.dx, projected.dy);
-      }
-    }
-    path.close();
-    return path;
-  }
-
   @override
   int? hitTest(Offset localPosition, Matrix4 transform) {
-    final inverseTransform = Matrix4.tryInvert(transform);
-    if (inverseTransform == null) return null;
-
-    final point = MatrixUtils.transformPoint(inverseTransform, localPosition);
-
-    // Use a fixed size for hit-testing based on the widget's logical size
-    // We'll use a reasonable default that matches what was painted
+    final inv = Matrix4.tryInvert(transform);
+    if (inv == null) return null;
+    final point = MatrixUtils.transformPoint(inv, localPosition);
     final size = _lastPaintedSize ?? const Size(800, 600);
+    _rebuildCache(size);
 
-    // Check markers first (small countries) — more generous hit area
+    final hitR = 14.0 / transform.getMaxScaleOnAxis();
+
     for (final country in countries) {
-      if (_isSmallCountry(country, size)) {
-        final center = projection.project(country.centroid, size);
-        final distance = (point - center).distance;
-        if (distance <= _markerHitRadius) {
-          return country.id;
-        }
-      }
+      if (!_needsMarker(country.id)) continue;
+      final c = _centroidCache[country.id];
+      if (c == null) continue;
+      if ((point - c).distance <= hitR) return country.id;
     }
 
-    // Check polygon paths
     for (final country in countries) {
-      for (final polygon in country.polygons) {
-        if (polygon.length < 3) continue;
-        final path = _buildPath(polygon, size);
-        if (path.contains(point)) {
-          return country.id;
-        }
+      final paths = _pathCache[country.id];
+      if (paths == null) continue;
+      for (final path in paths) {
+        if (path.contains(point)) return country.id;
       }
     }
     return null;
   }
 
   Size? _lastPaintedSize;
-
-  void updatePaintedSize(Size size) {
-    _lastPaintedSize = size;
-  }
+  void updatePaintedSize(Size size) => _lastPaintedSize = size;
 }

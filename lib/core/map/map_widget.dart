@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_themes.dart';
 import 'country_layer.dart';
 import 'map_layer.dart';
+import 'projection.dart';
 
 class InteractiveMap extends StatefulWidget {
   final List<MapLayer> layers;
@@ -32,19 +33,35 @@ class _InteractiveMapState extends State<InteractiveMap> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return InteractiveViewer(
-          transformationController: _controller,
-          minScale: 0.8,
-          maxScale: 50.0,
-          boundaryMargin: const EdgeInsets.all(double.infinity),
-          child: GestureDetector(
-            onTapUp: _onTapUp,
-            child: CustomPaint(
-              painter: _MapPainter(
-                layers: widget.layers,
-                theme: widget.mapTheme,
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        final mapH = w * Projection.aspectRatio;
+
+        return Container(
+          color: widget.mapTheme.waterColor,
+          width: w,
+          height: h,
+          child: InteractiveViewer(
+            transformationController: _controller,
+            minScale: 1.0,
+            maxScale: 80.0,
+            boundaryMargin: EdgeInsets.zero,
+            child: GestureDetector(
+              onTapUp: _onTapUp,
+              child: AnimatedBuilder(
+                animation: _controller,
+                builder: (context, _) {
+                  final scale = _controller.value.getMaxScaleOnAxis();
+                  return CustomPaint(
+                    painter: _MapPainter(
+                      layers: widget.layers,
+                      theme: widget.mapTheme,
+                      viewScale: scale,
+                    ),
+                    size: Size(w, mapH),
+                  );
+                },
               ),
-              size: Size(constraints.maxWidth, constraints.maxHeight),
             ),
           ),
         );
@@ -68,24 +85,24 @@ class _InteractiveMapState extends State<InteractiveMap> {
 class _MapPainter extends CustomPainter {
   final List<MapLayer> layers;
   final MapThemeData theme;
+  final double viewScale;
 
   _MapPainter({
     required this.layers,
     required this.theme,
+    required this.viewScale,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = theme.waterColor,
-    );
+    canvas.drawRect(Offset.zero & size, Paint()..color = theme.waterColor);
 
     final identity = Matrix4.identity();
     for (final layer in layers) {
       if (layer.visible) {
         if (layer is CountryLayer) {
           layer.updatePaintedSize(size);
+          layer.currentScale = viewScale;
         }
         layer.paint(canvas, size, identity, theme);
       }
@@ -93,5 +110,6 @@ class _MapPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_MapPainter old) => true;
+  bool shouldRepaint(_MapPainter old) =>
+      old.viewScale != viewScale || old.theme != theme;
 }
