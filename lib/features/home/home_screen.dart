@@ -64,6 +64,12 @@ class HomeScreen extends StatelessWidget {
                 icon: Icons.landscape,
                 onTap: () => _startGame(context, 'americas'),
               ),
+              const SizedBox(height: 12),
+              _ModeButton(
+                label: 'Océanie',
+                icon: Icons.waves,
+                onTap: () => _startGame(context, 'oceanie'),
+              ),
               const Spacer(flex: 3),
             ],
           ),

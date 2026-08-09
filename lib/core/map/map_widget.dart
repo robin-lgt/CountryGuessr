@@ -22,6 +22,7 @@ class InteractiveMap extends StatefulWidget {
 
 class _InteractiveMapState extends State<InteractiveMap> {
   final TransformationController _controller = TransformationController();
+  bool _initialized = false;
 
   @override
   void dispose() {
@@ -29,23 +30,41 @@ class _InteractiveMapState extends State<InteractiveMap> {
     super.dispose();
   }
 
+  void _initZoom(double viewW, double viewH, double mapW, double mapH) {
+    if (_initialized) return;
+    _initialized = true;
+
+    // Zoom so the map height fills the viewport height
+    final scale = viewH / mapH;
+    // Center horizontally
+    final dx = -(mapW * scale - viewW) / 2;
+    _controller.value = Matrix4.identity()
+      ..translateByDouble(dx, 0.0, 0.0, 1.0)
+      ..scaleByDouble(scale, scale, 1.0, 1.0);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        final h = constraints.maxHeight;
-        final mapH = w * Projection.aspectRatio;
+        final viewW = constraints.maxWidth;
+        final viewH = constraints.maxHeight;
+        final mapH = viewW * Projection.aspectRatio;
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _initZoom(viewW, viewH, viewW, mapH);
+        });
 
         return Container(
           color: widget.mapTheme.waterColor,
-          width: w,
-          height: h,
+          width: viewW,
+          height: viewH,
           child: InteractiveViewer(
             transformationController: _controller,
-            minScale: 1.0,
+            minScale: 0.5,
             maxScale: 80.0,
             boundaryMargin: EdgeInsets.zero,
+            constrained: false,
             child: GestureDetector(
               onTapUp: _onTapUp,
               child: AnimatedBuilder(
@@ -58,7 +77,7 @@ class _InteractiveMapState extends State<InteractiveMap> {
                       theme: widget.mapTheme,
                       viewScale: scale,
                     ),
-                    size: Size(w, mapH),
+                    size: Size(viewW, mapH),
                   );
                 },
               ),
